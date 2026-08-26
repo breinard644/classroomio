@@ -31,7 +31,7 @@ import { getCourseGroupId } from '@cio/db/queries/course/people';
 import { ContentType, ROLE } from '@cio/utils/constants';
 import { isPublishedComplianceMissingDeadline, resolveCourseCertificateDeadline } from '@cio/utils/functions';
 import type { TCourse } from '@cio/db/types';
-import type { TCourseCreate } from '@cio/utils/validation/course';
+import type { NonAutoGradableQuestionOffender, TCourseCreate } from '@cio/utils/validation/course';
 import { db } from '@cio/db/drizzle';
 import * as schema from '@cio/db/schema';
 import { and, eq } from 'drizzle-orm';
@@ -50,6 +50,11 @@ import { invalidateOrgStats } from '../../utils/redis/org-stats-cache';
 import { annotateCourseContentWithProgression } from './progression';
 import { buildCourseContent, calcPercentageWithRounding, type CourseContent } from './utils';
 import { guardCourseTypeTransition } from './public-course-guard';
+
+export interface UpdateCourseResult {
+  course: TCourse;
+  conversionOffenders?: NonAutoGradableQuestionOffender[] | null;
+}
 
 /**
  * Whether a *new* student would be turned away from this org right now
@@ -335,7 +340,7 @@ export async function createCourse(
  * @param data Course update data
  * @returns Updated course
  */
-export async function updateCourse(courseId: string, data: Partial<TCourse>) {
+export async function updateCourse(courseId: string, data: Partial<TCourse>): Promise<UpdateCourseResult> {
   try {
     const sanitizedData: Partial<TCourse> = {
       ...data,
@@ -352,15 +357,26 @@ export async function updateCourse(courseId: string, data: Partial<TCourse>) {
       throw new AppError('Course not found', ErrorCodes.COURSE_NOT_FOUND, 404);
     }
 
+    let conversionOffenders: NonAutoGradableQuestionOffender[] | null = null;
+
     if (data.type !== undefined) {
-      await guardCourseTypeTransition({
-        courseId,
-        currentType: currentCourse.type ?? null,
-        nextType: data.type
-      });
+      try {
+        await guardCourseTypeTransition({
+          courseId,
+          currentType: currentCourse.type ?? null,
+          nextType: data.type
+        });
+      } catch (error) {
+        if (error instanceof AppError && error.code === ErrorCodes.PUBLIC_COURSE_CONVERSION_BLOCKED) {
+          conversionOffenders = (error.details as NonAutoGradableQuestionOffender[]) ?? [];
+          delete sanitizedData.type;
+        } else {
+          throw error;
+        }
+      }
     }
 
-    const nextType = data.type ?? currentCourse.type;
+    const nextType = sanitizedData.type ?? currentCourse.type;
     const nextIsPublished = data.isPublished ?? currentCourse.isPublished;
     const nextDeadline = resolveCourseCertificateDeadline(currentCourse.certificate?.deadline, data.certificate);
 
@@ -433,7 +449,7 @@ export async function updateCourse(courseId: string, data: Partial<TCourse>) {
       await invalidateOrgStats(statsOrgId);
     }
 
-    return updated;
+    return { course: updated, conversionOffenders };
   } catch (error) {
     if (error instanceof AppError) {
       throw error;

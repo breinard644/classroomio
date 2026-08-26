@@ -1,4 +1,5 @@
 import { classroomio, type InferResponseType } from '$lib/utils/services/api';
+import type { NonAutoGradableQuestionOffender } from '@cio/utils/validation/course';
 
 // List lessons types
 export type ListLessonsRequest = (typeof classroomio.course)[':courseId']['lesson']['$get'];
@@ -490,3 +491,33 @@ export type VideoRecordingUploadCompleteRequest =
   (typeof classroomio.course)[':courseId']['exercise'][':exerciseId']['question'][':questionId']['video-recording']['upload']['complete']['$post'];
 export type VideoRecordingPlaybackRequest =
   (typeof classroomio.course)[':courseId']['exercise'][':exerciseId']['submission'][':submissionId']['question'][':questionId']['video-recording']['playback']['$get'];
+
+// Public course conversion flow types
+export interface ExerciseConversionGroup {
+  exerciseId: string;
+  exerciseTitle: string;
+  questions: Array<{
+    questionId: string | number;
+    questionTitle: string;
+    typeId: number;
+  }>;
+}
+
+export interface PublicConversionCountdown {
+  totalExercises: number;
+  resolvedExercises: number;
+  remainingExercises: number;
+  totalQuestions: number;
+  resolvedQuestions: number;
+  remainingQuestions: number;
+  percentComplete: number;
+  isFullyResolved: boolean;
+}
+
+export interface PublicConversionPersistedState {
+  isActive: boolean;
+  courseId: string | null;
+  initialOffenders: NonAutoGradableQuestionOffender[];
+  offenders: NonAutoGradableQuestionOffender[];
+  resolvedExerciseIds: string[];
+}

@@ -5,20 +5,21 @@
   import { IconButton } from '@cio/ui/custom/icon-button';
   import * as Tooltip from '@cio/ui/base/tooltip';
   import { t } from '$lib/utils/functions/translations';
+  import type { Snippet } from 'svelte';
 
   interface Props {
     isTitle?: boolean;
-    onClose?: any;
-    points?: any;
+    onClose?: () => void;
+    points?: number | string;
     hasError?: boolean;
     errorMsg?: string | null;
     /** Hint shown next to the points input while points is 0 (e.g. auto-grade requires non-zero points) */
     pointsHint?: string | null;
-    onPointsChange?: any;
+    onPointsChange?: (value?: unknown) => void;
     elementId?: string;
     class?: string;
     key?: string;
-    children?: import('svelte').Snippet;
+    children?: Snippet;
   }
 
   let {
@@ -33,10 +34,6 @@
     class: className = '',
     children
   }: Props = $props();
-
-  // `points` is often bound to a plain store object property, which is not deeply
-  // reactive — a local reactive owner keeps the zero-points warning live while typing.
-  let pointsValue = $state(points);
 </script>
 
 <div
@@ -60,18 +57,12 @@
         </p>
         <InputField
           placeholder={$t('course.navItem.lessons.exercises.new_exercise_modal.points')}
-          bind:value={
-            () => pointsValue,
-            (nextValue) => {
-              pointsValue = nextValue;
-              points = nextValue;
-            }
-          }
+          bind:value={points}
           type="number"
           onchange={onPointsChange}
         />
 
-        {#if Number(pointsValue) === 0}
+        {#if Number(points) === 0}
           <Tooltip.Provider>
             <Tooltip.Root>
               <Tooltip.Trigger class="ml-2 shrink-0">
@@ -87,7 +78,7 @@
 
       {#if errorMsg}
         <p class="text-xs text-red-500">{errorMsg}</p>
-      {:else if pointsHint && Number(pointsValue) === 0}
+      {:else if pointsHint && Number(points) === 0}
         <p class="ui:text-muted-foreground max-w-[min(100%,12rem)] text-xs">{pointsHint}</p>
       {/if}
 

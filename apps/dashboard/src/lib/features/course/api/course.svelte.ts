@@ -30,6 +30,7 @@ import { resolve } from '$app/paths';
 import { snackbar } from '$features/ui/snackbar/store';
 import { t } from '$lib/utils/functions/translations';
 import { coursesApi } from './courses.svelte';
+import { publicConversionFlow } from '../store/public-conversion.svelte';
 import { ROLE, ErrorCodes } from '@cio/utils/constants';
 import { ContentType } from '@cio/utils/constants/content';
 import type { CourseMembers } from '../utils/types';
@@ -54,7 +55,12 @@ interface UpdateCourseOptions {
 export class CourseApi extends BaseApiWithErrors {
   course = $state<Course | null>(null);
   courseAnalytics = $state<CourseAnalytics | null>(null);
-  publicConversionOffenders = $state<NonAutoGradableQuestionOffender[]>([]);
+  get publicConversionOffenders(): NonAutoGradableQuestionOffender[] {
+    return publicConversionFlow.offenders;
+  }
+  set publicConversionOffenders(value: NonAutoGradableQuestionOffender[]) {
+    publicConversionFlow.offenders = value;
+  }
   group = $state<GroupStore>({
     id: '',
     tutors: [],
@@ -65,12 +71,11 @@ export class CourseApi extends BaseApiWithErrors {
 
   override resetErrors() {
     super.resetErrors();
-    this.publicConversionOffenders = [];
   }
 
   override reset() {
     super.reset();
-    this.publicConversionOffenders = [];
+    publicConversionFlow.reset();
   }
 
   private loadedCourseId = $state<string | null>(null);
@@ -480,6 +485,8 @@ export class CourseApi extends BaseApiWithErrors {
       return null;
     }
 
+    let conversionOffenders: NonAutoGradableQuestionOffender[] = [];
+
     const response = await this.execute<UpdateCourseRequest>({
       requestFn: () =>
         classroomio.course[':courseId'].$put({
@@ -497,12 +504,24 @@ export class CourseApi extends BaseApiWithErrors {
           } else {
             this.course = response.data as Course;
           }
-          if (showSuccessToast) {
-            snackbar.success('Course updated successfully');
+
+          conversionOffenders =
+            'conversionBlocked' in response && Array.isArray(response.conversionBlocked)
+              ? (response.conversionBlocked as NonAutoGradableQuestionOffender[])
+              : [];
+
+          if (conversionOffenders.length > 0) {
+            publicConversionFlow.start(courseId, conversionOffenders);
+            snackbar.info('snackbar.course_settings.info.conversion_blocked');
+          } else if (publicConversionFlow.isActive && publicConversionFlow.courseId === courseId) {
+            publicConversionFlow.reset();
+          }
+
+          if (showSuccessToast && conversionOffenders.length === 0) {
+            snackbar.success('snackbar.course_settings.success.update_successful');
           }
           this.success = true;
           this.errors = {};
-          this.publicConversionOffenders = [];
         }
       },
       onError: (result) => {
@@ -514,16 +533,6 @@ export class CourseApi extends BaseApiWithErrors {
           this.errors['certificate.deadline'] = t.get('course.certification.deadline_required');
           snackbar.error('course.certification.deadline_required');
           return;
-        }
-        if (
-          'code' in result &&
-          result.code === ErrorCodes.PUBLIC_COURSE_CONVERSION_BLOCKED &&
-          'details' in result &&
-          Array.isArray(result.details)
-        ) {
-          this.publicConversionOffenders = result.details as unknown as NonAutoGradableQuestionOffender[];
-        } else {
-          this.publicConversionOffenders = [];
         }
 
         if ('error' in result && 'field' in result && result.field) {
